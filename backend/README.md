@@ -8,6 +8,8 @@ regex (patterns), spaCy (name NER, optional), and dateparser (dates).
 
 - **Phase 1:** project setup, database integration, file upload, clean architecture.
 - **Phase 2:** the parsing engine — `POST /api/v1/resumes/{resume_id}/parse` and `GET /api/v1/resumes/{resume_id}/parsed`.
+- **Phase 3:** resume management — paginated listing, multi-field search, structural
+  filtering, statistics, deletion, and download.
 
 ## Folder Structure
 
@@ -33,12 +35,13 @@ backend/
 │   │   ├── certification.py           #   Certification
 │   │   └── project.py                 #   Project
 │   ├── repositories/                  # Only layer that touches the DB session
-│   │   ├── resume_repository.py       #   Resume CRUD
+│   │   ├── resume_repository.py       #   Resume CRUD + find_all/search/statistics/delete
 │   │   └── parsed_resume_repository.py#   Parsed-data aggregate: save (transactional) + fetch
 │   ├── services/
 │   │   ├── upload_service.py          # Upload validation, storage, persistence
 │   │   ├── parser_service.py          # Pure: PDF bytes -> ParsedResumeData (no DB/disk)
 │   │   ├── resume_parsing_service.py  # Orchestration: fetch, dedupe-guard, parse, persist
+│   │   ├── resume_management_service.py # Orchestration: list/search/detail/stats/delete/download
 │   │   └── extractors/                # One module per extraction concern
 │   │       ├── text_extractor.py      #   PyMuPDF text extraction + cleaning
 │   │       ├── section_splitter.py    #   Splits text into named sections by header line
@@ -51,11 +54,15 @@ backend/
 │   │       └── certification_extractor.py
 │   ├── schemas/
 │   │   ├── resume.py                  # Upload request/response models
-│   │   └── parsed_resume.py           # Parsed-data models (shared by service/repo/API)
+│   │   ├── parsed_resume.py           # Parsed-data models (shared by service/repo/API)
+│   │   ├── resume_management.py       # List/detail/statistics response models
+│   │   └── resume_query.py            # Internal list/search criteria dataclasses
 │   ├── utils/
 │   │   ├── file_utils.py              # Pure filesystem helpers
 │   │   ├── skills.py                  # Predefined technical-skill catalog
-│   │   └── date_utils.py              # dateparser-based single-date/date-range parsing
+│   │   ├── date_utils.py              # dateparser-based single-date/date-range parsing
+│   │   ├── query_params.py            # Rejects unknown query parameters
+│   │   └── experience_calculator.py   # Sums Experience date ranges into total years
 │   ├── middleware/
 │   │   └── exception_handler.py       # Global exception handlers -> consistent JSON errors
 │   ├── exceptions/
@@ -63,7 +70,7 @@ backend/
 │   └── main.py                        # FastAPI app, routes, lifespan, handler registration
 ├── uploads/                            # PDF storage (bind-mounted volume)
 ├── tests/                              # Pytest suite (in-memory SQLite, no Docker required)
-│   └── fixtures/pdf_builder.py         # Builds synthetic test PDFs with PyMuPDF itself
+│   └── fixtures/                       # Synthetic test PDFs + text fixtures (PyMuPDF-built)
 ├── alembic/                            # Migrations (async env.py)
 ├── Dockerfile
 ├── docker-compose.yml
@@ -179,6 +186,81 @@ backend/
   non-ML parser — the alternative (a bespoke NLP model) is explicitly out of
   scope for Phase 2.
 
+### Phase 3 (management APIs)
+
+- **Route registration order is load-bearing.** `GET /resumes/search` and
+  `GET /resumes/statistics` are static paths that must be registered *before*
+  the dynamic `GET /resumes/{resume_id}` in `api/v1/resume.py` — otherwise
+  FastAPI would match "search"/"statistics" as a `resume_id` value first and
+  return a UUID-validation 422 instead of reaching the real handler. The
+  two-segment routes (`/{resume_id}/parse`, `/{resume_id}/details`, etc.)
+  don't have this problem since they're a different path shape entirely.
+
+- **No N+1 queries; `is_parsed` computed inline.** Whether a resume has been
+  parsed is derived from a correlated `EXISTS` against `personal_info`,
+  selected as an extra column in the same query that fetches the page of
+  `Resume` rows (`ResumeRepository._paginated_query`) — one query returns a
+  full page plus its parsed-status, not one query per resume.
+
+- **`EXISTS` subqueries instead of `JOIN + DISTINCT` for search/filtering.**
+  Each search field (skill, company, college, ...) lives on a different
+  child table with a one-to-many relationship to `Resume`. A `JOIN` across
+  several of these would multiply rows (a resume with 3 matching experience
+  rows would appear 3 times) requiring `DISTINCT` cleanup; a correlated
+  `EXISTS` per condition avoids that entirely and lets each subquery use its
+  own index. Multiple search/filter fields are combined with `AND` by just
+  adding more `EXISTS` conditions to the same query.
+
+- **Case-insensitive partial search via `.ilike()`.** SQLAlchemy compiles
+  `.ilike()` to native `ILIKE` on Postgres and automatically falls back to
+  `lower(x) LIKE lower(y)` on backends without it (SQLite) — one code path
+  behaves correctly on both without dialect branching.
+
+- **`minimum_experience` is computed in Python, not SQL.** Total years of
+  experience is a derived value (sum of `Experience` date-range durations)
+  that isn't expressible as one portable SQL expression across Postgres and
+  SQLite without dialect-specific date arithmetic. Instead,
+  `ResumeRepository._find_all_with_minimum_experience` applies every *other*
+  filter in SQL to get a candidate ID set, computes total experience for
+  just that set in Python (`utils/experience_calculator.py`), then
+  sorts/paginates the qualifying IDs — the expensive part (filtering the
+  full table) still happens in the database; only the derived-value
+  computation happens in Python, over an already-small set.
+
+- **Unknown query parameters are rejected explicitly.** FastAPI silently
+  ignores query params it doesn't declare, which would make a typo'd filter
+  (e.g. `?stauts=parsed`) silently do nothing. `utils/query_params.py`
+  cross-checks the request's actual query keys against an allowlist per
+  route and raises 400 on anything unrecognized.
+
+- **`GET /resumes/{id}/details` returns `parsed: null` (200), not 404, for
+  an unparsed resume** — unlike `GET /resumes/{id}/parsed` from Phase 2. The
+  resume itself exists and its metadata is meaningful either way; only the
+  *parsed-data* endpoint's whole purpose is the parsed data, so only it 404s
+  when there is none.
+
+- **Delete relies on `ON DELETE CASCADE`, set up back in Phase 2's
+  migration.** `ResumeManagementService.delete_resume()` only needs to
+  delete the on-disk file and the `Resume` row — every child table
+  (personal_info, education, experience, skills, certifications, projects,
+  social_profiles) cascades automatically at the database level; no
+  application-level fan-out deletes were needed.
+
+- **Download reuses `FileResponse`** rather than manually setting
+  `Content-Type`/`Content-Disposition` headers — passing `media_type` and
+  `filename` gets both right for free and avoids reimplementing header
+  construction that FastAPI already provides.
+
+- **New indexes added in `202608040003_add_query_indexes.py`** on the
+  columns Phase 3 actually sorts/filters/searches by: `resumes.created_at`,
+  `resumes.original_filename`, `resumes.status`, `experience.company`,
+  `experience.job_title`, `education.institution`, `education.degree`,
+  `certifications.name`, `personal_info.full_name`, `personal_info.email`.
+  (B-tree indexes accelerate prefix/exact matches; they don't meaningfully
+  speed up leading-wildcard `%value%` search — a production system doing
+  heavy free-text search would add Postgres trigram/GIN indexes, which is
+  out of scope here to avoid an extension dependency.)
+
 ## Environment Variables
 
 | Variable            | Description                                   | Default (see `.env.example`) |
@@ -227,6 +309,8 @@ Migrations:
   `social_profiles`, `education`, `experience`, `skills`, `resume_skills`,
   `certifications`, `projects`, each FK'd to `resumes.id` with
   `ON DELETE CASCADE` (Phase 2).
+- `202608040003_add_query_indexes.py` — adds indexes supporting Phase 3's
+  sorting/filtering/search (see design decisions above).
 
 ## Run Commands
 
@@ -252,8 +336,15 @@ Once running: Swagger UI at `http://localhost:8000/docs`, ReDoc at
 | GET    | `/`                                    | Service info                                    |
 | GET    | `/health`                              | Health check                                    |
 | POST   | `/api/v1/resumes/upload`               | Upload a PDF resume (max 10MB)                  |
+| GET    | `/api/v1/resumes`                      | List resumes (pagination, sorting, filtering)   |
+| GET    | `/api/v1/resumes/search`               | Multi-field partial/case-insensitive search     |
+| GET    | `/api/v1/resumes/statistics`           | Corpus-wide aggregate statistics                |
 | POST   | `/api/v1/resumes/{resume_id}/parse`    | Parse an uploaded resume into structured data   |
 | GET    | `/api/v1/resumes/{resume_id}/parsed`   | Fetch a resume's previously parsed data         |
+| GET    | `/api/v1/resumes/{resume_id}/details`  | Resume metadata + full nested parsed data       |
+| GET    | `/api/v1/resumes/{resume_id}/download` | Download the original PDF                       |
+| GET    | `/api/v1/resumes/{resume_id}`          | Get a single resume's metadata                  |
+| DELETE | `/api/v1/resumes/{resume_id}`          | Delete a resume (file + metadata + parsed data) |
 
 `POST .../parse` and `GET .../parsed` both return:
 
@@ -277,6 +368,82 @@ Once running: Swagger UI at `http://localhost:8000/docs`, ReDoc at
 `422` corrupted/encrypted/empty PDF, `500` stored file missing from disk or a
 persistence failure.
 
+### Resume Management (Phase 3)
+
+**List** — `GET /resumes` supports `page`, `page_size` (max 100), `sort`
+(`created_at` | `filename` | `status`), `order` (`asc` | `desc`), and filters
+`uploaded_after`, `uploaded_before` (ISO 8601), `parsed`, `has_projects`,
+`has_certifications`, `has_experience` (all `true`/`false`), and
+`minimum_experience` (float, years). Response:
+
+```json
+{"page": 1, "page_size": 20, "total": 54, "items": [
+  {"id": "...", "filename": "...", "status": "UPLOADED", "file_size": 12345,
+   "content_type": "application/pdf", "is_parsed": true,
+   "created_at": "...", "updated_at": "..."}
+]}
+```
+
+```bash
+curl "http://localhost:8000/api/v1/resumes?page=1&page_size=20&sort=created_at&order=desc"
+curl "http://localhost:8000/api/v1/resumes?parsed=true&has_experience=true"
+curl "http://localhost:8000/api/v1/resumes?minimum_experience=3"
+```
+
+**Search** — `GET /resumes/search` supports `name`, `email`, `phone`,
+`skill`, `college`, `degree`, `company`, `job_title`, `certification`,
+`github`, `linkedin`, `portfolio` (all partial, case-insensitive; combine
+freely — every provided field must match) plus the same `page`/`page_size`/
+`sort`/`order` params, returning the same envelope as `GET /resumes`.
+
+```bash
+curl "http://localhost:8000/api/v1/resumes/search?skill=python"
+curl "http://localhost:8000/api/v1/resumes/search?company=google"
+curl "http://localhost:8000/api/v1/resumes/search?name=dev"
+curl "http://localhost:8000/api/v1/resumes/search?email=gmail.com"
+curl "http://localhost:8000/api/v1/resumes/search?skill=python&company=google"
+```
+
+**Statistics** — `GET /resumes/statistics`:
+
+```bash
+curl "http://localhost:8000/api/v1/resumes/statistics"
+```
+```json
+{
+  "total_resumes": 120, "parsed": 118, "pending": 2,
+  "top_skills": [{"skill": "Python", "count": 85}],
+  "top_companies": [{"company": "Google", "count": 12}],
+  "top_colleges": [{"college": "MIT", "count": 9}],
+  "most_common_degree": [{"degree": "B.Tech", "count": 40}]
+}
+```
+
+**Single resume / full details:**
+
+```bash
+curl "http://localhost:8000/api/v1/resumes/<resume_id>"
+curl "http://localhost:8000/api/v1/resumes/<resume_id>/details"
+```
+
+**Delete** (204 No Content; cascades to all parsed data automatically):
+
+```bash
+curl -X DELETE "http://localhost:8000/api/v1/resumes/<resume_id>"
+```
+
+**Download** (streams the original PDF with correct headers):
+
+```bash
+curl -OJ "http://localhost:8000/api/v1/resumes/<resume_id>/download"
+```
+
+Validation: negative `page`, invalid `page_size` (outside 1-100), and
+unknown `sort` values return `422`; an unrecognized query parameter (e.g.
+`?stauts=...`) returns `400`; an invalid UUID in the path returns `422`; a
+nonexistent `resume_id` returns `404` — all in the standard
+`{"success": false, "message": "..."}` envelope.
+
 ## Test Commands
 
 Tests run against an in-memory SQLite database and a temporary directory —
@@ -298,9 +465,16 @@ pytest -v
 - `test_parse_api.py` — integration tests through the HTTP client: parse a
   valid uploaded resume, fetch parsed data, fetch before parsing (404),
   duplicate parse (409), parse a nonexistent resume (404).
+- `test_resume_management.py` — pagination, sorting, filtering (`parsed`,
+  `has_experience`, `has_projects`, `minimum_experience`), validation
+  (negative page, invalid page size, unknown sort field, unknown query
+  parameter, invalid UUID, not found), search (by skill, company, name,
+  email, college, degree, and multiple fields combined), statistics,
+  delete (removes both the DB row and the on-disk file), and download
+  (correct headers, 404 when missing).
 
 ## Git Commit Message
 
 ```
-feat: implement resume parsing engine and structured data extraction
+feat: implement resume retrieval search and management APIs
 ```
