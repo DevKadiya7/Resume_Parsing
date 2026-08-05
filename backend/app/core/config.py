@@ -3,7 +3,7 @@
 import enum
 from functools import lru_cache
 
-from pydantic import field_validator, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,23 +44,33 @@ class Settings(BaseSettings):
     # by RequestSizeLimitMiddleware before routing; slightly above MAX_FILE_SIZE to leave
     # room for multipart overhead (boundaries, headers, form field names).
 
-    # Comma-separated in the environment, e.g. "api.example.com,www.example.com".
-    # "*" (the default) allows any Host header / origin — fine for local development,
-    # but production deployments should set this explicitly (enforced below).
-    ALLOWED_HOSTS: list[str] = ["*"]
-    ALLOWED_ORIGINS: list[str] = ["*"]
+    # Comma-separated, e.g. "api.example.com,www.example.com". Kept as a raw
+    # `str` (not `list[str]`) because pydantic-settings attempts to JSON-decode
+    # any complex-typed field sourced from an env var — `ALLOWED_HOSTS=*` isn't
+    # valid JSON and would fail at startup before any custom validator runs.
+    # Use `allowed_hosts` / `allowed_origins` below to get the parsed list.
+    # "*" (the default) allows any Host header / origin — fine for local
+    # development, but production deployments should set this explicitly
+    # (enforced below).
+    ALLOWED_HOSTS: str = "*"
+    ALLOWED_ORIGINS: str = "*"
 
     RATE_LIMIT_UPLOAD: str = "20/minute"
     RATE_LIMIT_PARSE: str = "20/minute"
 
     LOG_FORMAT: str = "text"  # "text" (human-readable console) or "json" (structured)
 
-    @field_validator("ALLOWED_HOSTS", "ALLOWED_ORIGINS", mode="before")
-    @classmethod
-    def _split_comma_separated(cls, value: str | list[str]) -> list[str]:
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+    @staticmethod
+    def _split_comma_separated(value: str) -> list[str]:
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    @property
+    def allowed_hosts(self) -> list[str]:
+        return self._split_comma_separated(self.ALLOWED_HOSTS)
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return self._split_comma_separated(self.ALLOWED_ORIGINS)
 
     @model_validator(mode="after")
     def _validate_production_hardening(self) -> "Settings":
@@ -73,9 +83,9 @@ class Settings(BaseSettings):
             problems = []
             if self.DEBUG:
                 problems.append("DEBUG must be False in production")
-            if self.ALLOWED_HOSTS == ["*"]:
+            if self.ALLOWED_HOSTS.strip() == "*":
                 problems.append("ALLOWED_HOSTS must be set to explicit hostnames in production")
-            if self.ALLOWED_ORIGINS == ["*"]:
+            if self.ALLOWED_ORIGINS.strip() == "*":
                 problems.append("ALLOWED_ORIGINS must be set to explicit origins in production")
             if "localhost" in self.DATABASE_URL or "127.0.0.1" in self.DATABASE_URL:
                 problems.append("DATABASE_URL still points at localhost in production")
