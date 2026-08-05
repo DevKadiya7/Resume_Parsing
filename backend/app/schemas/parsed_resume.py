@@ -87,6 +87,63 @@ class ParsedResumeData(BaseModel):
 class ParseResumeResponse(BaseModel):
     """Response body for both the parse action and the parsed-data lookup."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "resume_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "parsed": {
+                    "personal_info": {
+                        "full_name": "Jane Doe",
+                        "email": "jane.doe@example.com",
+                        "phone": "+1 555-123-4567",
+                        "address": "San Francisco, CA",
+                        "summary": "Backend engineer with 6 years of experience.",
+                    },
+                    "skills": ["Docker", "FastAPI", "Python", "SQL"],
+                    "education": [
+                        {
+                            "institution": "MIT",
+                            "degree": "B.Tech",
+                            "field_of_study": "Computer Science",
+                            "start_date": "2015-08-01",
+                            "end_date": "2019-05-01",
+                            "grade": "8.7 CGPA",
+                        }
+                    ],
+                    "experience": [
+                        {
+                            "company": "Google",
+                            "job_title": "Software Engineer",
+                            "location": "Mountain View, CA",
+                            "start_date": "2020-01-01",
+                            "end_date": None,
+                            "is_current": True,
+                            "description": "Building scalable backend systems.",
+                        }
+                    ],
+                    "projects": [
+                        {
+                            "name": "Resume Parser",
+                            "description": "Extracts structured data from PDF resumes.",
+                            "technologies": "Python, FastAPI",
+                        }
+                    ],
+                    "certifications": [
+                        {
+                            "name": "AWS Certified Solutions Architect",
+                            "issuer": "Amazon Web Services",
+                            "date": "2021-06-01",
+                        }
+                    ],
+                    "social_profiles": [
+                        {"platform": "LINKEDIN", "url": "linkedin.com/in/janedoe"}
+                    ],
+                },
+            }
+        }
+    )
+
     success: bool = True
     resume_id: uuid.UUID
     parsed: ParsedResumeData

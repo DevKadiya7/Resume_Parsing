@@ -80,6 +80,4 @@ class ResumeParsingService:
             return await asyncio.to_thread(Path(resume.storage_path).read_bytes)
         except OSError as exc:
             logger.exception("Stored resume file missing on disk: resume_id=%s", resume.id)
-            raise StorageException(
-                "The stored resume file could not be read from disk."
-            ) from exc
+            raise StorageException("The stored resume file could not be read from disk.") from exc

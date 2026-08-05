@@ -51,9 +51,7 @@ async def test_list_resumes_pagination(client: AsyncClient) -> None:
 async def test_list_resumes_sort_by_filename_ascending(client: AsyncClient) -> None:
     await _seed_three_resumes(client)
 
-    response = await client.get(
-        "/api/v1/resumes?sort=filename&order=asc&page_size=10"
-    )
+    response = await client.get("/api/v1/resumes?sort=filename&order=asc&page_size=10")
 
     assert response.status_code == 200
     filenames = [item["filename"] for item in response.json()["items"]]
@@ -294,10 +292,11 @@ async def test_statistics(client: AsyncClient) -> None:
 
 
 async def test_delete_resume_removes_record_and_file(client: AsyncClient, tmp_path: Path) -> None:
+    # Files are stored under uploads/<year>/<month>/, not flat in tmp_path.
     ids = await _seed_three_resumes(client)
     resume_id = ids["alice"]
 
-    stored_files_before = list(tmp_path.glob("*.pdf"))
+    stored_files_before = list(tmp_path.rglob("*.pdf"))
     assert len(stored_files_before) == 3
 
     response = await client.delete(f"/api/v1/resumes/{resume_id}")
@@ -307,7 +306,7 @@ async def test_delete_resume_removes_record_and_file(client: AsyncClient, tmp_pa
     get_response = await client.get(f"/api/v1/resumes/{resume_id}")
     assert get_response.status_code == 404
 
-    stored_files_after = list(tmp_path.glob("*.pdf"))
+    stored_files_after = list(tmp_path.rglob("*.pdf"))
     assert len(stored_files_after) == 2
 
 
@@ -333,9 +332,7 @@ async def test_download_resume(client: AsyncClient) -> None:
 
 
 async def test_download_resume_not_found(client: AsyncClient) -> None:
-    response = await client.get(
-        "/api/v1/resumes/00000000-0000-0000-0000-000000000000/download"
-    )
+    response = await client.get("/api/v1/resumes/00000000-0000-0000-0000-000000000000/download")
 
     assert response.status_code == 404
     assert response.json()["success"] is False

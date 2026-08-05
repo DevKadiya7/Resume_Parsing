@@ -123,6 +123,11 @@ class ResumeRepository:
         Python, then apply the final filter/sort/paginate over the
         (typically much smaller) qualifying set.
         """
+        # Narrowed once here so mypy can see it's non-None below — the only
+        # caller (`find_all`) already checked this before dispatching here.
+        minimum_experience = criteria.minimum_experience
+        assert minimum_experience is not None
+
         id_stmt = select(Resume.id)
         if conditions:
             id_stmt = id_stmt.where(and_(*conditions))
@@ -131,9 +136,9 @@ class ResumeRepository:
         if not candidate_ids:
             return [], 0
 
-        exp_stmt = select(
-            Experience.resume_id, Experience.start_date, Experience.end_date
-        ).where(Experience.resume_id.in_(candidate_ids))
+        exp_stmt = select(Experience.resume_id, Experience.start_date, Experience.end_date).where(
+            Experience.resume_id.in_(candidate_ids)
+        )
         exp_rows = (await self._db.execute(exp_stmt)).all()
 
         entries_by_resume: dict[uuid.UUID, list[tuple[date | None, date | None]]] = {}
@@ -144,7 +149,7 @@ class ResumeRepository:
             resume_id
             for resume_id in candidate_ids
             if calculate_total_experience_years(entries_by_resume.get(resume_id, []))
-            >= criteria.minimum_experience
+            >= minimum_experience
         ]
 
         total = len(qualifying_ids)
@@ -252,7 +257,9 @@ class ResumeRepository:
                 .exists()
             )
         if criteria.github:
-            conditions.append(self._social_profile_condition(SocialPlatform.GITHUB, criteria.github))
+            conditions.append(
+                self._social_profile_condition(SocialPlatform.GITHUB, criteria.github)
+            )
         if criteria.linkedin:
             conditions.append(
                 self._social_profile_condition(SocialPlatform.LINKEDIN, criteria.linkedin)

@@ -48,47 +48,69 @@ class ParsedResumeRepository:
         """Persist every extracted entity for `resume_id` in a single transaction.
 
         Any failure rolls back the entire set, so a resume never ends up
-        with partially-saved parsed data.
+        with partially-saved parsed data. Each entity list is inserted with
+        one `add_all()` (a single batched INSERT) rather than one `add()`
+        call per row, and per-resume skills are resolved against the global
+        catalog with one bulk lookup query instead of one query per skill.
         """
         try:
             self._db.add(PersonalInfo(resume_id=resume_id, **data.personal_info.model_dump()))
 
-            for education in data.education:
-                self._db.add(Education(resume_id=resume_id, **education.model_dump()))
+            self._db.add_all(
+                Education(resume_id=resume_id, **education.model_dump())
+                for education in data.education
+            )
+            self._db.add_all(
+                Experience(resume_id=resume_id, **experience.model_dump())
+                for experience in data.experience
+            )
+            self._db.add_all(
+                Project(resume_id=resume_id, **project.model_dump()) for project in data.projects
+            )
+            self._db.add_all(
+                Certification(resume_id=resume_id, **certification.model_dump())
+                for certification in data.certifications
+            )
+            self._db.add_all(
+                SocialProfile(resume_id=resume_id, **social_profile.model_dump())
+                for social_profile in data.social_profiles
+            )
 
-            for experience in data.experience:
-                self._db.add(Experience(resume_id=resume_id, **experience.model_dump()))
-
-            for project in data.projects:
-                self._db.add(Project(resume_id=resume_id, **project.model_dump()))
-
-            for certification in data.certifications:
-                self._db.add(Certification(resume_id=resume_id, **certification.model_dump()))
-
-            for social_profile in data.social_profiles:
-                self._db.add(SocialProfile(resume_id=resume_id, **social_profile.model_dump()))
-
-            for skill_name in data.skills:
-                skill = await self._get_or_create_skill(skill_name)
-                self._db.add(ResumeSkill(resume_id=resume_id, skill_id=skill.id))
+            skill_ids = await self._resolve_skill_ids(data.skills)
+            self._db.add_all(
+                ResumeSkill(resume_id=resume_id, skill_id=skill_id) for skill_id in skill_ids
+            )
 
             await self._db.commit()
         except Exception:
             await self._db.rollback()
             raise
 
-    async def _get_or_create_skill(self, name: str) -> Skill:
-        """Return the existing `Skill` row for `name`, creating it if new.
+    async def _resolve_skill_ids(self, skill_names: list[str]) -> list[uuid.UUID]:
+        """Map skill names to `Skill.id`s, creating any that don't exist yet.
 
-        Keeps the global skill catalog deduplicated across resumes.
+        One `SELECT ... WHERE name IN (...)` resolves every already-known
+        skill at once, and only genuinely new names are inserted (also in
+        one batch) — a single resume's worth of skills no longer costs one
+        query per skill against the global catalog.
         """
-        result = await self._db.execute(select(Skill).where(Skill.name == name))
-        skill = result.scalar_one_or_none()
-        if skill is None:
-            skill = Skill(name=name)
-            self._db.add(skill)
-            await self._db.flush()  # assign skill.id without committing yet
-        return skill
+        unique_names = sorted(set(skill_names))
+        if not unique_names:
+            return []
+
+        existing = (
+            await self._db.scalars(select(Skill).where(Skill.name.in_(unique_names)))
+        ).all()
+        skill_id_by_name = {skill.name: skill.id for skill in existing}
+
+        missing_names = [name for name in unique_names if name not in skill_id_by_name]
+        if missing_names:
+            new_skills = [Skill(name=name) for name in missing_names]
+            self._db.add_all(new_skills)
+            await self._db.flush()  # assign IDs without committing yet
+            skill_id_by_name.update({skill.name: skill.id for skill in new_skills})
+
+        return [skill_id_by_name[name] for name in unique_names]
 
     async def get_by_resume_id(self, resume_id: uuid.UUID) -> ParsedResumeData | None:
         """Fetch and reassemble the full parsed-data aggregate for a resume.

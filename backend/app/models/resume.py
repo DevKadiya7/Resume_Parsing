@@ -4,8 +4,9 @@ import enum
 import uuid
 from datetime import datetime
 
+from sqlalchemy import BigInteger, DateTime
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import BigInteger, DateTime, String, Uuid, func
+from sqlalchemy import String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -28,9 +29,7 @@ class Resume(Base):
 
     __tablename__ = "resumes"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     stored_filename: Mapped[str] = mapped_column(
         String(255), nullable=False, unique=True, index=True

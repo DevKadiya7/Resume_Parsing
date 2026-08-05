@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import (
@@ -19,7 +19,9 @@ from app.api.deps import (
     get_resume_parsing_service,
     get_upload_service,
 )
+from app.core.config import get_settings
 from app.core.logger import get_logger
+from app.core.rate_limiter import limiter
 from app.schemas.parsed_resume import ParseResumeResponse
 from app.schemas.resume import ErrorResponse, ResumeUploadResponse
 from app.schemas.resume_management import (
@@ -37,6 +39,7 @@ from app.services.upload_service import UploadService
 from app.utils.query_params import ensure_known_query_params
 
 logger = get_logger(__name__)
+settings = get_settings()
 
 router = APIRouter(prefix="/resumes", tags=["Resumes"])
 
@@ -88,7 +91,10 @@ _SEARCH_PARAMS = {
         500: {"model": ErrorResponse, "description": "Storage or persistence failure"},
     },
 )
+@limiter.limit(settings.RATE_LIMIT_UPLOAD)
 async def upload_resume(
+    request: Request,
+    response: Response,
     upload_service: Annotated[UploadService, Depends(get_upload_service)],
     file: Annotated[UploadFile, File(description="PDF resume file, max 10MB")],
 ) -> ResumeUploadResponse:
@@ -126,7 +132,9 @@ async def list_resumes(
         datetime | None,
         Query(description="ISO 8601 datetime; only resumes uploaded on/before this"),
     ] = None,
-    parsed: Annotated[bool | None, Query(description="Only parsed (true) or unparsed (false)")] = None,
+    parsed: Annotated[
+        bool | None, Query(description="Only parsed (true) or unparsed (false)")
+    ] = None,
     has_projects: Annotated[bool | None, Query()] = None,
     has_certifications: Annotated[bool | None, Query()] = None,
     has_experience: Annotated[bool | None, Query()] = None,
@@ -172,7 +180,9 @@ async def search_resumes(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     sort: Annotated[ResumeSortField, Query()] = ResumeSortField.CREATED_AT,
     order: Annotated[SortOrder, Query()] = SortOrder.DESC,
-    name: Annotated[str | None, Query(min_length=1, description="Partial match on full name")] = None,
+    name: Annotated[
+        str | None, Query(min_length=1, description="Partial match on full name")
+    ] = None,
     email: Annotated[str | None, Query(min_length=1)] = None,
     phone: Annotated[str | None, Query(min_length=1)] = None,
     skill: Annotated[str | None, Query(min_length=1)] = None,
@@ -244,7 +254,10 @@ async def get_statistics(
         500: {"model": ErrorResponse, "description": "Stored file missing or persistence failure"},
     },
 )
+@limiter.limit(settings.RATE_LIMIT_PARSE)
 async def parse_resume(
+    request: Request,
+    response: Response,
     resume_id: UUID,
     parsing_service: Annotated[ResumeParsingService, Depends(get_resume_parsing_service)],
 ) -> ParseResumeResponse:

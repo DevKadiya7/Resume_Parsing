@@ -41,9 +41,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         return _error_response(message, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     @app.exception_handler(StarletteHTTPException)
-    async def handle_http_exception(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         return _error_response(str(exc.detail), exc.status_code)
 
     @app.exception_handler(Exception)

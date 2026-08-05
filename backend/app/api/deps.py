@@ -44,7 +44,9 @@ def get_parser_service() -> ParserService:
 
 def get_resume_parsing_service(
     resume_repository: Annotated[ResumeRepository, Depends(get_resume_repository)],
-    parsed_resume_repository: Annotated[ParsedResumeRepository, Depends(get_parsed_resume_repository)],
+    parsed_resume_repository: Annotated[
+        ParsedResumeRepository, Depends(get_parsed_resume_repository)
+    ],
     parser_service: Annotated[ParserService, Depends(get_parser_service)],
 ) -> ResumeParsingService:
     return ResumeParsingService(
@@ -56,7 +58,9 @@ def get_resume_parsing_service(
 
 def get_resume_management_service(
     resume_repository: Annotated[ResumeRepository, Depends(get_resume_repository)],
-    parsed_resume_repository: Annotated[ParsedResumeRepository, Depends(get_parsed_resume_repository)],
+    parsed_resume_repository: Annotated[
+        ParsedResumeRepository, Depends(get_parsed_resume_repository)
+    ],
 ) -> ResumeManagementService:
     return ResumeManagementService(
         resume_repository=resume_repository,

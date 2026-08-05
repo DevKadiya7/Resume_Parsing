@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.resume import Resume, ResumeStatus
 from app.schemas.parsed_resume import ParsedResumeData
@@ -50,6 +50,28 @@ class ResumeSummary(BaseModel):
 class PaginatedResumeResponse(BaseModel):
     """Response envelope shared by the list and search endpoints."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "page": 1,
+                "page_size": 20,
+                "total": 54,
+                "items": [
+                    {
+                        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "filename": "jane_doe_resume.pdf",
+                        "status": "UPLOADED",
+                        "file_size": 245678,
+                        "content_type": "application/pdf",
+                        "is_parsed": True,
+                        "created_at": "2026-08-05T10:15:30Z",
+                        "updated_at": "2026-08-05T10:15:35Z",
+                    }
+                ],
+            }
+        }
+    )
+
     page: int
     page_size: int
     total: int
@@ -91,6 +113,20 @@ class DegreeCount(BaseModel):
 
 
 class StatisticsResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "total_resumes": 120,
+                "parsed": 118,
+                "pending": 2,
+                "top_skills": [{"skill": "Python", "count": 85}],
+                "top_companies": [{"company": "Google", "count": 12}],
+                "top_colleges": [{"college": "MIT", "count": 9}],
+                "most_common_degree": [{"degree": "B.Tech", "count": 40}],
+            }
+        }
+    )
+
     total_resumes: int
     parsed: int
     pending: int

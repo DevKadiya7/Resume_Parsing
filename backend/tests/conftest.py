@@ -7,25 +7,49 @@ by pointing the real app config at SQLite, so the production wiring in
 `app.db.database` / `app.core.config` is exercised unmodified.
 """
 
+import os
 from collections.abc import AsyncGenerator
 
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+# Rate limits are baked into the route decorators at import time (see
+# app/api/v1/resume.py), so they must be widened via real environment
+# variables *before* `app.main` is imported — a per-test dependency
+# override (as used for the DB/upload-directory below) is too late to
+# affect them. Without this, the full test suite's upload/parse call
+# volume would trip the default rate limit and fail unrelated tests.
+os.environ.setdefault("RATE_LIMIT_UPLOAD", "100000/minute")
+os.environ.setdefault("RATE_LIMIT_PARSE", "100000/minute")
 
-from app.core.config import Settings, get_settings
-from app.db.database import Base, get_db
-from app.main import app
+import tempfile  # noqa: E402
+
+import pytest_asyncio  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from app.core.config import Settings, get_settings  # noqa: E402
+from app.db.database import Base, get_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 TEN_MB = 10 * 1024 * 1024
 
+# A file-based SQLite DB (not `:memory:` + StaticPool) so concurrent-upload
+# tests exercise genuinely separate connections, the same way pool-backed
+# Postgres does in production. A single shared `:memory:` connection can
+# only run one transaction at a time and raises "cannot commit transaction
+# - SQL statements in progress" the moment two requests overlap.
+_tmp_db_fd, _tmp_db_path = tempfile.mkstemp(suffix=".db")
+os.close(_tmp_db_fd)
+
 test_engine = create_async_engine(
-    "sqlite+aiosqlite:///:memory:",
+    f"sqlite+aiosqlite:///{_tmp_db_path}",
     connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
 )
-TestSessionLocal = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
+TestSessionLocal = async_sessionmaker(
+    bind=test_engine, class_=AsyncSession, expire_on_commit=False
+)
 
 
 async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
