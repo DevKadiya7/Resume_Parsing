@@ -18,6 +18,61 @@ _URL_HINT_PATTERN = re.compile(
 # conventional position/shape of a name at the top of a resume.
 _NAME_LINE_PATTERN = re.compile(r"^[A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){1,3}$")
 
+# Section-heading words that must never be accepted as a person's name,
+# however confidently a positional/NER heuristic proposes them — a resume
+# with no blank line before "Skills"/"Machine Learning"/etc. can otherwise
+# fool a purely shape-based check.
+_HEADING_BLOCKLIST = frozenset(
+    {
+        "skills",
+        "technical skills",
+        "core competencies",
+        "machine learning",
+        "education",
+        "academic background",
+        "experience",
+        "work experience",
+        "professional experience",
+        "employment history",
+        "projects",
+        "personal projects",
+        "academic projects",
+        "portfolio",
+        "certifications",
+        "certificates",
+        "licenses",
+        "summary",
+        "professional summary",
+        "profile",
+        "objective",
+        "about me",
+        "achievements",
+        "hobbies",
+        "interests",
+        "references",
+        "social links",
+        "links",
+        "contact",
+        "contact information",
+        "area of interest",
+    }
+)
+
+# "Frontend: React.js, HTML5, ..." / "Skills: Python, ..." — a label
+# followed by a colon and a comma-separated list is a strong signal of a
+# skills/details bullet, never an address.
+_LABELLED_LINE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z /&]{1,30}:\s*\S")
+
+_ADDRESS_KEYWORD_PATTERN = re.compile(
+    r"\b(street|st\.|road|rd\.|avenue|ave\.|lane|ln\.|nagar|sector|colony|apartment|apt\.|"
+    r"house\s*no\.?|block|society|district|dist\.|pin\s*code|zip\s*code|p\.?o\.?\s*box)\b",
+    re.IGNORECASE,
+)
+# "City, State 12345" / "City, Country" — a plausible "<place>, <place>" shape.
+_CITY_STATE_PATTERN = re.compile(
+    r"^[A-Za-z][A-Za-z .]{1,30},\s*[A-Za-z][A-Za-z .]{1,30}(\s*-?\s*\d{4,6})?$"
+)
+
 _spacy_nlp = None
 _spacy_load_attempted = False
 
@@ -69,51 +124,96 @@ def extract_phone(text: str) -> str | None:
     return None
 
 
-def extract_name(header_text: str) -> str | None:
+def _is_heading_like(candidate: str) -> bool:
+    return candidate.strip().lower().rstrip(":").strip() in _HEADING_BLOCKLIST
+
+
+def _looks_like_contact_line(candidate: str) -> bool:
+    return bool("@" in candidate or _PHONE_CANDIDATE_PATTERN.search(candidate))
+
+
+def extract_name(header_text: str, prominent_line: str | None = None) -> str | None:
     """Best-effort name extraction from the resume's header block.
 
-    Tries a positional heuristic first — a short, title-cased line with
-    no digits/@/URL near the top of the resume — then falls back to
-    spaCy's PERSON named-entity recognition over the header text.
+    Tries, in order:
+    1. `prominent_line` — the largest-font-size line near the top of page
+       1 (see `text_extractor.extract_prominent_top_line`), if it's
+       plausibly a name. This is the strongest available signal (a
+       resume's name is conventionally its largest text) and is checked
+       before any positional/shape heuristic, per design intent: don't
+       just grab the first heading-shaped line.
+    2. A positional heuristic — a short, title-cased line with no
+       digits/@/URL, scanned only through the lines *before* the first
+       line that looks like contact info (email/phone) — a name never
+       appears after that point.
+    3. spaCy's PERSON named-entity recognition, scoped to that same
+       pre-contact-info text rather than the whole header block, so a
+       table or paragraph further down can't be mistaken for a name.
+
+    A candidate that matches a known section-heading word (e.g. "Skills",
+    "Machine Learning") is rejected at every stage.
     """
-    for line in header_text.splitlines()[:6]:
+    if prominent_line:
+        candidate = prominent_line.strip()
+        if (
+            candidate
+            and len(candidate) <= 60
+            and not _looks_like_contact_line(candidate)
+            and not _URL_HINT_PATTERN.search(candidate)
+            and not _is_heading_like(candidate)
+        ):
+            return candidate
+
+    lines_before_contact: list[str] = []
+    for line in header_text.splitlines()[:8]:
         candidate = line.strip()
-        if not candidate or len(candidate) > 60:
+        if not candidate:
             continue
-        if "@" in candidate or _URL_HINT_PATTERN.search(candidate):
+        if _looks_like_contact_line(candidate):
+            break  # a name never appears after the contact-info line
+        lines_before_contact.append(candidate)
+
+    for candidate in lines_before_contact:
+        if len(candidate) > 60 or _URL_HINT_PATTERN.search(candidate):
             continue
-        if any(char.isdigit() for char in candidate):
+        if _is_heading_like(candidate):
             continue
         if _NAME_LINE_PATTERN.match(candidate):
             return candidate
 
     nlp = _get_spacy_model()
-    if nlp is None:
+    if nlp is None or not lines_before_contact:
         return None
 
-    doc = nlp(header_text[:500])
+    doc = nlp("\n".join(lines_before_contact)[:500])
     for entity in doc.ents:
-        if entity.label_ == "PERSON":
-            return entity.text.strip()
+        if entity.label_ != "PERSON":
+            continue
+        candidate = entity.text.strip()
+        if candidate and not _is_heading_like(candidate):
+            return candidate
     return None
 
 
 def extract_address(header_text: str) -> str | None:
     """Best-effort address heuristic.
 
-    Looks for a header line containing a comma and digits (street
-    number/ZIP) but with fewer than 10 digits total, to avoid picking up
-    the phone number line. There is no reliable regex-only way to
-    distinguish a real address from other comma-separated header text,
-    so this deliberately stays conservative.
+    Only accepts a line that (a) isn't a "Label: value" style bullet
+    (skills/details lines like "Frontend: React.js, HTML5, ..." are
+    rejected outright) and (b) contains either a recognizable address
+    keyword (Street/Road/Nagar/Sector/...) or a "City, State/Country
+    [ZIP]"-shaped fragment. There is no reliable regex-only way to
+    identify an address with certainty, so this stays conservative and
+    returns `None` rather than guessing when nothing matches.
     """
     for line in header_text.splitlines():
         candidate = line.strip()
         if not candidate or "@" in candidate or _URL_HINT_PATTERN.search(candidate):
             continue
-        if "," not in candidate or not any(char.isdigit() for char in candidate):
+        if _LABELLED_LINE_PATTERN.match(candidate):
             continue
-        digits = re.sub(r"\D", "", candidate)
-        if len(digits) < 10:
-            return candidate
+        if _ADDRESS_KEYWORD_PATTERN.search(candidate) or _CITY_STATE_PATTERN.match(candidate):
+            digits = re.sub(r"\D", "", candidate)
+            if len(digits) <= 12:  # excludes a phone-number line slipping through
+                return candidate
     return None

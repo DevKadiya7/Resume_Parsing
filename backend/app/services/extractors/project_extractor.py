@@ -3,6 +3,7 @@
 import re
 from typing import TypedDict
 
+from app.services.extractors.block_splitter import split_entry_blocks, strip_bullet_prefix
 from app.services.extractors.skill_extractor import extract_skills
 
 _TECHNOLOGIES_LINE_PATTERN = re.compile(
@@ -16,22 +17,15 @@ class ProjectEntry(TypedDict):
     technologies: str | None
 
 
-def _split_blocks(section_text: str) -> list[str]:
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", section_text) if block.strip()]
-    if blocks:
-        return blocks
-    return [section_text.strip()] if section_text.strip() else []
-
-
 def extract_projects(section_text: str) -> list[ProjectEntry]:
     entries: list[ProjectEntry] = []
 
-    for block in _split_blocks(section_text):
+    for block in split_entry_blocks(section_text):
         lines = [line.strip() for line in block.splitlines() if line.strip()]
         if not lines:
             continue
 
-        name = lines[0]
+        name = strip_bullet_prefix(lines[0]) or None
         technologies: str | None = None
         description_lines: list[str] = []
 

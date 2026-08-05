@@ -21,6 +21,24 @@ def build_pdf(*pages_text: str) -> bytes:
         document.close()
 
 
+def build_pdf_with_link(text: str, link_uri: str, link_text: str) -> bytes:
+    """Build a single-page PDF where `link_text` (found via text search on
+    the page) is a clickable hyperlink annotation pointing at `link_uri` —
+    simulating a resume's "LinkedIn"/"GitHub" anchor text whose real URL
+    only exists as a link annotation, not in the visible text layer.
+    """
+    document = fitz.open()
+    try:
+        page = document.new_page(width=612, height=792)
+        page.insert_textbox(_PAGE_RECT, text, fontsize=10)
+        rects = page.search_for(link_text)
+        if rects:
+            page.insert_link({"kind": fitz.LINK_URI, "from": rects[0], "uri": link_uri})
+        return document.tobytes()
+    finally:
+        document.close()
+
+
 def build_encrypted_pdf(text: str, user_password: str = "secret123") -> bytes:
     """Build a single-page PDF that requires `user_password` to open."""
     document = fitz.open()

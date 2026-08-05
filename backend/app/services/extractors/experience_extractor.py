@@ -4,10 +4,13 @@ import re
 from datetime import date
 from typing import TypedDict
 
+from app.services.extractors.block_splitter import split_entry_blocks, strip_bullet_prefix
 from app.utils.date_utils import DATE_RANGE_PATTERN, parse_date_range
 
 _LOCATION_PATTERN = re.compile(r"\b([A-Z][a-zA-Z.\s]+,\s*[A-Z]{2,}(?:\s*\d{5})?|Remote)\b")
-_HEADER_SEPARATORS = (" at ", " @ ", " | ", " - ", ", ")
+# " - " / " | " use a plain hyphen; " – " / " — " cover en/em dashes, which
+# several real resumes use as the title/company separator instead.
+_HEADER_SEPARATORS = (" at ", " @ ", " | ", " - ", " – ", " — ", ", ")
 
 
 class ExperienceEntry(TypedDict):
@@ -18,13 +21,6 @@ class ExperienceEntry(TypedDict):
     end_date: date | None
     is_current: bool
     description: str | None
-
-
-def _split_blocks(section_text: str) -> list[str]:
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", section_text) if block.strip()]
-    if blocks:
-        return blocks
-    return [section_text.strip()] if section_text.strip() else []
 
 
 def _split_title_company(line: str) -> tuple[str | None, str | None]:
@@ -38,8 +34,9 @@ def _split_title_company(line: str) -> tuple[str | None, str | None]:
 def extract_experience(section_text: str) -> list[ExperienceEntry]:
     entries: list[ExperienceEntry] = []
 
-    for block in _split_blocks(section_text):
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
+    for block in split_entry_blocks(section_text):
+        lines = [strip_bullet_prefix(line) for line in block.splitlines() if line.strip()]
+        lines = [line for line in lines if line]
         if not lines:
             continue
 

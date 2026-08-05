@@ -43,15 +43,27 @@ class ParserService:
         text = text_extractor.extract_text(pdf_bytes)
         logger.info("Text extracted: %d characters", len(text))
 
+        prominent_line = text_extractor.extract_prominent_top_line(pdf_bytes)
+        hyperlink_uris = text_extractor.extract_hyperlink_uris(pdf_bytes)
+
         sections = section_splitter.split_sections(text)
         logger.info("Sections identified: %s", sorted(sections.keys()))
 
         return ParsedResumeData(
-            personal_info=self._extract_personal_info(text, sections),
+            personal_info=self._extract_personal_info(text, sections, prominent_line),
             skills=skill_extractor.extract_skills(sections.get("skills") or text),
             education=[
                 EducationSchema(**entry)
-                for entry in education_extractor.extract_education(sections.get("education", ""))
+                for entry in education_extractor.extract_education(
+                    # Some resumes state a degree/institution right in the
+                    # header (no dedicated "Education" heading at all —
+                    # e.g. a table-style education block with no literal
+                    # section title); fall back to scanning the header
+                    # block in that case, the same way `skills` already
+                    # falls back to the full document below.
+                    sections.get("education")
+                    or sections.get("header", "")
+                )
             ],
             experience=[
                 ExperienceSchema(**entry)
@@ -71,12 +83,23 @@ class ParserService:
             ],
             social_profiles=[
                 SocialProfileSchema(platform=platform, url=url)
-                for platform, url in social_extractor.extract_social_profiles(text)
+                for platform, url in social_extractor.extract_social_profiles(
+                    # Real hyperlink-annotation URLs (see `text_extractor`)
+                    # are merged in only here, not into `text` itself —
+                    # appending them to the sectioned text would attach
+                    # them to whatever the *last* detected section
+                    # happens to be instead of staying un-sectioned.
+                    text
+                    + "\n"
+                    + "\n".join(hyperlink_uris)
+                )
             ],
         )
 
     @staticmethod
-    def _extract_personal_info(full_text: str, sections: dict[str, str]) -> PersonalInfoSchema:
+    def _extract_personal_info(
+        full_text: str, sections: dict[str, str], prominent_line: str | None
+    ) -> PersonalInfoSchema:
         header_text = sections.get("header", "")
         # Contact details usually live in the header, but fall back to the
         # full document in case a resume places them elsewhere (e.g. a footer).
@@ -90,7 +113,7 @@ class ParserService:
         )
 
         return PersonalInfoSchema(
-            full_name=contact_extractor.extract_name(header_text),
+            full_name=contact_extractor.extract_name(header_text, prominent_line),
             email=email,
             phone=phone,
             address=contact_extractor.extract_address(header_text),
