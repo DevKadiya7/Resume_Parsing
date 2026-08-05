@@ -336,3 +336,16 @@ async def test_download_resume_not_found(client: AsyncClient) -> None:
 
     assert response.status_code == 404
     assert response.json()["success"] is False
+
+
+async def test_download_after_delete_returns_404(client: AsyncClient) -> None:
+    ids = await _seed_three_resumes(client)
+    resume_id = ids["alice"]
+
+    delete_response = await client.delete(f"/api/v1/resumes/{resume_id}")
+    assert delete_response.status_code == 204
+
+    response = await client.get(f"/api/v1/resumes/{resume_id}/download")
+
+    assert response.status_code == 404
+    assert response.json()["success"] is False

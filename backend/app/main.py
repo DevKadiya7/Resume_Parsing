@@ -23,6 +23,7 @@ from app.middleware.logging_middleware import RequestLoggingMiddleware
 from app.middleware.request_id_middleware import RequestIDMiddleware
 from app.middleware.security_headers_middleware import SecurityHeadersMiddleware
 from app.middleware.size_limit_middleware import RequestSizeLimitMiddleware
+from app.schemas.meta import HealthResponse, RootResponse
 from app.utils.file_utils import ensure_directory_exists
 
 settings = get_settings()
@@ -93,13 +94,14 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 app.include_router(resume.router, prefix="/api/v1")
 
 
-@app.get("/", summary="Service info", tags=["Meta"])
-async def root() -> dict[str, str]:
-    return {"message": "Resume Parsing Service"}
+@app.get("/", response_model=RootResponse, summary="Service info", tags=["Meta"])
+async def root() -> RootResponse:
+    return RootResponse(message="Resume Parsing Service")
 
 
 @app.get(
     "/health",
+    response_model=HealthResponse,
     summary="Health check",
     tags=["Meta"],
     description=(
@@ -107,7 +109,7 @@ async def root() -> dict[str, str]:
         "directory availability, application version, and process uptime."
     ),
 )
-async def health(db: Annotated[AsyncSession, Depends(get_db)]) -> dict:
+async def health(db: Annotated[AsyncSession, Depends(get_db)]) -> HealthResponse:
     database_status = "connected"
     try:
         await db.execute(text("SELECT 1"))
@@ -121,11 +123,11 @@ async def health(db: Annotated[AsyncSession, Depends(get_db)]) -> dict:
     is_healthy = database_status == "connected" and upload_directory_status == "ok"
     overall_status = "healthy" if is_healthy else "degraded"
 
-    return {
-        "status": overall_status,
-        "version": settings.APP_VERSION,
-        "environment": settings.ENVIRONMENT.value,
-        "uptime_seconds": round(time.monotonic() - _start_time, 2),
-        "database": database_status,
-        "upload_directory": upload_directory_status,
-    }
+    return HealthResponse(
+        status=overall_status,
+        version=settings.APP_VERSION,
+        environment=settings.ENVIRONMENT.value,
+        uptime_seconds=round(time.monotonic() - _start_time, 2),
+        database=database_status,
+        upload_directory=upload_directory_status,
+    )

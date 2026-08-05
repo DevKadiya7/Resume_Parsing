@@ -93,6 +93,19 @@ class ParsedResumeRepository:
         skill at once, and only genuinely new names are inserted (also in
         one batch) — a single resume's worth of skills no longer costs one
         query per skill against the global catalog.
+
+        Known race condition, accepted rather than guarded against: if two
+        resumes introducing the same brand-new skill name are parsed
+        concurrently, both can see it as "missing" before either commits,
+        and whichever flushes second hits `Skill.name`'s unique constraint,
+        failing that parse request with a 500 (the whole `save_parsed_data`
+        transaction rolls back cleanly — no partial/corrupt data results,
+        just a failed request the client can retry). This window only
+        exists for a skill's first-ever occurrence in the catalog, which
+        shrinks over the corpus's lifetime as common skills get recorded
+        once, so an `INSERT ... ON CONFLICT DO NOTHING` upsert (Postgres-
+        specific, and not available in the SQLite test backend) was judged
+        not worth the added complexity for how rarely it would trigger.
         """
         unique_names = sorted(set(skill_names))
         if not unique_names:

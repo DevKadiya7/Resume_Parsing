@@ -1,10 +1,26 @@
 # Resume Parsing Service
 
+[![Backend CI](https://github.com/DevKadiya7/Resume_Parsing/actions/workflows/backend.yml/badge.svg)](https://github.com/DevKadiya7/Resume_Parsing/actions/workflows/backend.yml)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-red)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 A production-hardened backend that accepts PDF resumes, stores them, extracts
 structured information from them, and exposes that data through a searchable,
 paginated API — all **without an LLM or external AI API**. Extraction is done
 entirely with PyMuPDF (text), regex (patterns), spaCy (name NER, optional),
-and dateparser (dates).
+and dateparser (dates). Built end-to-end with Clean Architecture, a fully
+async SQLAlchemy 2.0 stack, and a CI pipeline that lints, type-checks, tests,
+and builds the Docker image on every push.
+
+<!--
+Screenshots (placeholder — add real captures before publishing):
+  docs/screenshots/swagger-ui.png     — Swagger UI at /docs
+  docs/screenshots/upload-flow.png    — an upload -> parse -> search walkthrough
+  docs/screenshots/statistics.png     — GET /resumes/statistics response
+-->
+
 
 ## Project Overview
 
