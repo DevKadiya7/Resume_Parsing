@@ -1,0 +1,69 @@
+{
+  "feature_columns": [
+    "word_count",
+    "skill_count",
+    "language_count",
+    "framework_count",
+    "cloud_devops_count",
+    "data_tool_count",
+    "education_level",
+    "years_experience",
+    "certification_count",
+    "project_mentions",
+    "has_github"
+  ],
+  "uses_engineered_features": false,
+  "samples": [
+    {
+      "text": "Senior Data Engineer with 7 years building batch and streaming pipelines. Expert in Apache Spark, Airflow, Kafka, Snowflake, dbt and PySpark. Migrated on-premise Hadoop workloads to Databricks on AWS and designed star-schema dimensional models powering executive analytics. Strong SQL and Python. Built incremental ingestion frameworks handling late-arriving events, authored dbt models with automated data quality tests, and orchestrated interdependent Airflow DAGs with SLA monitoring and automated backfill support.",
+      "engineered_features": {
+        "word_count": 71.0,
+        "skill_count": 10.0,
+        "language_count": 1.0,
+        "framework_count": 0.0,
+        "cloud_devops_count": 1.0,
+        "data_tool_count": 8.0,
+        "education_level": 0.0,
+        "years_experience": 7.0,
+        "certification_count": 0.0,
+        "project_mentions": 0.0,
+        "has_github": 0.0
+      },
+      "expected_prediction": "DATA-ENGINEER"
+    },
+    {
+      "text": "Frontend Engineer specializing in React, TypeScript, Next.js and Tailwind CSS. Built an accessible component library documented in Storybook, improved Lighthouse performance from 55 to 96 through code splitting and lazy loading, and wrote Jest and Cypress test suites covering critical user journeys. Collaborated with designers in Figma to deliver pixel-accurate components and ensured WCAG 2.1 AA compliance through semantic markup and keyboard navigation.",
+      "engineered_features": {
+        "word_count": 64.0,
+        "skill_count": 3.0,
+        "language_count": 1.0,
+        "framework_count": 2.0,
+        "cloud_devops_count": 0.0,
+        "data_tool_count": 0.0,
+        "education_level": 0.0,
+        "years_experience": 0.0,
+        "certification_count": 0.0,
+        "project_mentions": 0.0,
+        "has_github": 0.0
+      },
+      "expected_prediction": "FRONTEND-DEVELOPER"
+    },
+    {
+      "text": "Staff Accountant experienced in accounts payable and receivable, general ledger reconciliation, month-end close, financial statement preparation, payroll processing and QuickBooks. CPA candidate with advanced Excel skills. Prepared journal entries, reconciled bank statements, supported external audits, and maintained fixed asset schedules and depreciation records.",
+      "engineered_features": {
+        "word_count": 44.0,
+        "skill_count": 0.0,
+        "language_count": 0.0,
+        "framework_count": 0.0,
+        "cloud_devops_count": 0.0,
+        "data_tool_count": 0.0,
+        "education_level": 0.0,
+        "years_experience": 0.0,
+        "certification_count": 0.0,
+        "project_mentions": 0.0,
+        "has_github": 0.0
+      },
+      "expected_prediction": "ACCOUNTANT"
+    }
+  ]
+}

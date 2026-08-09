@@ -2,3 +2,15 @@
 .idea/
 .DS_Store
 Thumbs.db
+
+# Source dataset (859 PDFs + a 66 MB CSV). Git is the wrong place for a
+# corpus this size — it would bloat every clone forever, and the data is
+# reproducible from its original source.
+archive/
+
+# Merged training dataset (~22 MB), regenerated deterministically by
+# backend/ml/01_build_dataset.ipynb from archive/ with a fixed seed.
+backend/ml/data/
+
+# Jupyter checkpoint noise
+.ipynb_checkpoints/
