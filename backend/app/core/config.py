@@ -1,5 +1,3 @@
-"""Application configuration loaded from environment variables / .env file."""
-
 import enum
 from functools import lru_cache
 
@@ -41,17 +39,7 @@ class Settings(BaseSettings):
     UPLOAD_DIRECTORY: str = "uploads"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10 MB — business-rule limit for a PDF upload
     MAX_REQUEST_SIZE: int = 12 * 1024 * 1024  # 12 MB — hard cap on any request body, enforced
-    # by RequestSizeLimitMiddleware before routing; slightly above MAX_FILE_SIZE to leave
-    # room for multipart overhead (boundaries, headers, form field names).
 
-    # Comma-separated, e.g. "api.example.com,www.example.com". Kept as a raw
-    # `str` (not `list[str]`) because pydantic-settings attempts to JSON-decode
-    # any complex-typed field sourced from an env var — `ALLOWED_HOSTS=*` isn't
-    # valid JSON and would fail at startup before any custom validator runs.
-    # Use `allowed_hosts` / `allowed_origins` below to get the parsed list.
-    # "*" (the default) allows any Host header / origin — fine for local
-    # development, but production deployments should set this explicitly
-    # (enforced below).
     ALLOWED_HOSTS: str = "*"
     ALLOWED_ORIGINS: str = "*"
 
@@ -59,6 +47,16 @@ class Settings(BaseSettings):
     RATE_LIMIT_PARSE: str = "20/minute"
 
     LOG_FORMAT: str = "text"  # "text" (human-readable console) or "json" (structured)
+
+    # Directory holding the Phase 1 model artifacts (role_classifier.joblib,
+    # tfidf_vectorizer.joblib, label_encoder.joblib, metadata.json). Relative
+    # paths resolve against the backend root, matching UPLOAD_DIRECTORY.
+    ML_ARTIFACTS_DIRECTORY: str = "ml/artifacts"
+    # When True, a scikit-learn minor-version difference between training and
+    # serving is fatal (503) instead of a warning. Off by default: pickled
+    # estimators usually load across patch versions, and refusing to serve is
+    # worse than a logged warning for a difference that is normally benign.
+    ML_STRICT_VERSION_CHECK: bool = False
 
     @staticmethod
     def _split_comma_separated(value: str) -> list[str]:
@@ -74,11 +72,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_hardening(self) -> "Settings":
-        """Fail fast at startup if production is misconfigured, instead of
-
-        silently running with permissive settings that are fine for local
-        development but unsafe as deployed.
-        """
         if self.ENVIRONMENT == Environment.PRODUCTION:
             problems = []
             if self.DEBUG:
@@ -96,10 +89,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return a cached Settings instance.
-
-    `lru_cache` ensures the environment/`.env` file is parsed once per
-    process and the same instance is reused everywhere via FastAPI's
-    dependency injection.
-    """
     return Settings()

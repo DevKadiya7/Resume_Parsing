@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFi
 from fastapi.responses import FileResponse
 
 from app.api.deps import (
+    get_resume_classification_service,
     get_resume_management_service,
     get_resume_parsing_service,
     get_upload_service,
@@ -22,6 +23,7 @@ from app.api.deps import (
 from app.core.config import get_settings
 from app.core.logger import get_logger
 from app.core.rate_limiter import limiter
+from app.schemas.classification import ClassificationResponse
 from app.schemas.parsed_resume import ParseResumeResponse
 from app.schemas.resume import ErrorResponse, ResumeUploadResponse
 from app.schemas.resume_management import (
@@ -33,6 +35,7 @@ from app.schemas.resume_management import (
     StatisticsResponse,
 )
 from app.schemas.resume_query import ResumeListCriteria, ResumeSearchCriteria
+from app.services.resume_classification_service import DEFAULT_TOP_K, ResumeClassificationService
 from app.services.resume_management_service import ResumeManagementService
 from app.services.resume_parsing_service import ResumeParsingService
 from app.services.upload_service import UploadService
@@ -264,6 +267,43 @@ async def parse_resume(
     logger.info("Parse request received: resume_id=%s", resume_id)
     parsed = await parsing_service.parse_resume(resume_id)
     return ParseResumeResponse(resume_id=resume_id, parsed=parsed)
+
+
+@router.post(
+    "/{resume_id}/classify",
+    response_model=ClassificationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Classify a resume into a role/industry",
+    description=(
+        "Predicts the resume's most likely role or industry using the "
+        "pre-trained classifier exported by `backend/ml`. Runs against the "
+        "PDF's extracted text, so the resume does **not** need to be parsed "
+        "first. Returns the top prediction plus the next-best alternatives, "
+        "sorted by descending confidence.\n\n"
+        "Confidence scores are relative and sum to 1 across all classes; "
+        "they rank predictions but are not calibrated probabilities."
+    ),
+    responses={
+        404: {"model": ErrorResponse, "description": "Resume not found"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid top_k, or a corrupted/encrypted/empty PDF",
+        },
+        500: {"model": ErrorResponse, "description": "Stored file missing on disk"},
+        503: {
+            "model": ErrorResponse,
+            "description": "Classification model unavailable or incompatible",
+        },
+    },
+)
+async def classify_resume(
+    resume_id: UUID,
+    service: Annotated[ResumeClassificationService, Depends(get_resume_classification_service)],
+    top_k: Annotated[
+        int, Query(ge=1, description="Number of predictions to return (max = model class count)")
+    ] = DEFAULT_TOP_K,
+) -> ClassificationResponse:
+    return await service.classify_resume(resume_id, top_k=top_k)
 
 
 @router.get(

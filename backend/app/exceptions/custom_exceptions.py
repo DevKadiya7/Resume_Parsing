@@ -88,6 +88,30 @@ class InvalidQueryParameterException(AppException):
     status_code = status.HTTP_400_BAD_REQUEST
 
 
+class InvalidTopKException(AppException):
+    """Raised when `top_k` is outside the range the loaded model can serve.
+
+    422 rather than 400 to match FastAPI's own out-of-range query-parameter
+    response, so a caller sees one consistent status for `top_k` whichever
+    bound it violates (`top_k=0` is rejected by FastAPI, `top_k=99` here).
+    """
+
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+class ModelUnavailableException(AppException):
+    """Raised when the classification model cannot be loaded or used.
+
+    Covers missing artifact files, a corrupted/unreadable artifact, and an
+    unsafe scikit-learn version mismatch. 503 rather than 500: the rest of
+    the API is healthy and the condition is typically recoverable by fixing
+    the deployment (shipping the artifacts, aligning versions) rather than
+    by changing code.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+
 class ResumeFileNotFoundException(AppException):
     """Raised when a resume's PDF is requested for download but is missing on disk.
 
