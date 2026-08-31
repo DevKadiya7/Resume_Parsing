@@ -1,4 +1,11 @@
-import { FiFileText, FiSearch, FiUploadCloud, FiX, FiGrid } from "react-icons/fi";
+import {
+  FiFileText,
+  FiGrid,
+  FiSearch,
+  FiTrendingUp,
+  FiUploadCloud,
+  FiX,
+} from "react-icons/fi";
 import { NavLink } from "react-router-dom";
 
 const LINKS = [
@@ -6,6 +13,7 @@ const LINKS = [
   { to: "/upload", label: "Upload Resume", icon: FiUploadCloud },
   { to: "/resumes", label: "Resumes", icon: FiFileText },
   { to: "/search", label: "Search", icon: FiSearch },
+  { to: "/candidate-ranking", label: "Candidate Ranking", icon: FiTrendingUp },
 ];
 
 export default function Sidebar({ open, onClose }) {

@@ -11,6 +11,7 @@ import {
 import { useNavigate, useParams } from "react-router-dom";
 
 import CertificationCard from "../components/CertificationCard.jsx";
+import ClassificationPanel from "../components/ClassificationPanel.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
 import EducationCard from "../components/EducationCard.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -20,6 +21,7 @@ import ProjectCard from "../components/ProjectCard.jsx";
 import SkillBadge from "../components/SkillBadge.jsx";
 import SocialLinks from "../components/SocialLinks.jsx";
 import { ParsedBadge, StatusBadge } from "../components/StatusBadge.jsx";
+import { useClassification } from "../hooks/useClassification";
 import { useToast } from "../hooks/useToast";
 import {
   deleteResume,
@@ -53,6 +55,15 @@ export default function ResumeDetails() {
   const [parsing, setParsing] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const classification = useClassification(id);
+
+  const handleClassify = async () => {
+    const result = await classification.classify();
+    if (result) {
+      toast.success("Classification completed.");
+    }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -155,6 +166,17 @@ export default function ResumeDetails() {
             Delete
           </button>
         </div>
+      </div>
+
+      {/* Rendered regardless of parse status: the classifier reads the PDF's
+          text directly, so a resume can be classified before it is parsed. */}
+      <div className="mb-6">
+        <ClassificationPanel
+          result={classification.result}
+          loading={classification.loading}
+          error={classification.error}
+          onClassify={handleClassify}
+        />
       </div>
 
       {!parsed ? (

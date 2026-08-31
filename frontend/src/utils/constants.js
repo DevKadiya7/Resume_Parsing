@@ -32,6 +32,11 @@ export const SEARCH_FIELDS = [
   { name: "email", label: "Email" },
 ];
 
+// How many predictions the classification endpoint returns by default. The
+// backend caps top_k at the model's class count (34) and rejects anything
+// larger with a 422.
+export const DEFAULT_TOP_K = 3;
+
 export const SOCIAL_PLATFORM_LABELS = {
   LINKEDIN: "LinkedIn",
   GITHUB: "GitHub",

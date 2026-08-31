@@ -9,7 +9,9 @@ import SearchBar from "../components/SearchBar.jsx";
 import { useToast } from "../hooks/useToast";
 import { useDebounce } from "../hooks/useDebounce";
 import { useResumes } from "../hooks/useResumes";
+import { classifyResume } from "../services/classificationService";
 import { deleteResume, listResumes, parseResume, searchResumes } from "../services/resumeService";
+import { formatRoleLabel } from "../utils/formatRole";
 
 const PAGE_SIZE = 10;
 
@@ -25,6 +27,8 @@ export default function ResumeList() {
     order: "desc",
   });
   const [parsingId, setParsingId] = useState(null);
+  const [classifyingId, setClassifyingId] = useState(null);
+  const [classifications, setClassifications] = useState({});
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -87,6 +91,19 @@ export default function ResumeList() {
     }
   };
 
+  const handleClassify = async (id) => {
+    setClassifyingId(id);
+    try {
+      const result = await classifyResume(id);
+      setClassifications((current) => ({ ...current, [id]: result }));
+      toast.success(`Classified as ${formatRoleLabel(result.predicted_role)}.`);
+    } catch (err) {
+      toast.error(err.message || "Unable to classify this resume. Please try again.");
+    } finally {
+      setClassifyingId(null);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -130,7 +147,10 @@ export default function ResumeList() {
             onSortChange={handleSortChange}
             onParse={handleParse}
             onDelete={setDeleteTarget}
+            onClassify={handleClassify}
             parsingId={parsingId}
+            classifyingId={classifyingId}
+            classifications={classifications}
           />
         )}
 

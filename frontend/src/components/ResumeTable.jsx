@@ -5,12 +5,14 @@ import {
   FiEye,
   FiPlayCircle,
   FiTrash2,
+  FiZap,
 } from "react-icons/fi";
 import { Link } from "react-router-dom";
 
 import { downloadResume } from "../services/resumeService";
 import { formatDate } from "../utils/formatDate";
 import { formatFileSize } from "../utils/formatFileSize";
+import { formatConfidence, formatRoleLabel } from "../utils/formatRole";
 import EmptyState from "./EmptyState.jsx";
 import LoadingSpinner from "./LoadingSpinner.jsx";
 import { ParsedBadge, StatusBadge } from "./StatusBadge.jsx";
@@ -49,12 +51,19 @@ export default function ResumeTable({
   onSortChange,
   onParse,
   onDelete,
+  onClassify,
   parsingId,
+  classifyingId,
+  // Results for rows classified during this session, keyed by resume id. The
+  // list endpoint does not return a role — the backend stores classifications
+  // nowhere — so this column is populated only by actions taken here rather
+  // than by inventing a value.
+  classifications = {},
 }) {
   if (loading) {
     return (
       <div className="p-5">
-        <TableSkeleton rows={6} columns={5} />
+        <TableSkeleton rows={6} columns={6} />
       </div>
     );
   }
@@ -97,6 +106,9 @@ export default function ResumeTable({
               Parsed
             </th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              AI Role
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               Size
             </th>
             <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -117,9 +129,36 @@ export default function ResumeTable({
               <td className="px-4 py-3">
                 <ParsedBadge isParsed={resume.is_parsed} />
               </td>
+              <td className="px-4 py-3">
+                {classifications[resume.id] ? (
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-slate-700">
+                      {formatRoleLabel(classifications[resume.id].predicted_role)}
+                    </p>
+                    <p className="tabular-nums text-xs text-slate-400">
+                      {formatConfidence(classifications[resume.id].confidence)}
+                    </p>
+                  </div>
+                ) : (
+                  <span className="text-xs text-slate-300">—</span>
+                )}
+              </td>
               <td className="px-4 py-3 text-slate-500">{formatFileSize(resume.file_size)}</td>
               <td className="px-4 py-3">
                 <div className="flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    title="Classify with AI"
+                    disabled={classifyingId === resume.id}
+                    onClick={() => onClassify(resume.id)}
+                    className="rounded-lg p-2 text-slate-500 hover:bg-primary-50 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    {classifyingId === resume.id ? (
+                      <LoadingSpinner size="sm" />
+                    ) : (
+                      <FiZap className="h-4 w-4" />
+                    )}
+                  </button>
                   <button
                     type="button"
                     title={resume.is_parsed ? "Already parsed" : "Parse resume"}
