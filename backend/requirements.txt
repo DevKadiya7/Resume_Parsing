@@ -24,10 +24,44 @@ slowapi==0.1.9
 # to the offline notebooks, not the API runtime.
 scikit-learn==1.5.2
 joblib==1.4.2
-xgboost==3.4.0
+# xgboost-cpu, not xgboost: the standard `xgboost` PyPI wheel bundles GPU
+# support and pulls in nvidia-nccl-cu13 (~250 MB) as a hard dependency even
+# though this service only ever does CPU inference — confirmed by an actual
+# `docker compose build`, which pulled that library and pushed the image
+# past 1.1 GB. `xgboost-cpu` is the xgboost project's own officially
+# published CPU-only variant (github.com/dmlc/xgboost issue #10596): same
+# `import xgboost` module, same API, no CUDA dependency. Available for
+# x86_64 Linux and Windows — this project's Docker target and local dev
+# platform, respectively.
+xgboost-cpu==3.4.0
+# numpy is imported directly by ml_model_service.py (score ranking/argsort)
+# and pinned explicitly rather than left to resolve transitively.
+#
+# Pinned to 1.26.4, NOT the 2.x line: spacy's compiled `thinc` backend
+# (thinc==8.2.4, pulled in by spacy==3.7.5 above) declares `numpy<2.0.0`
+# and its Cython extension is built against the numpy 1.x C-ABI — pip
+# installs numpy 2.x anyway without complaint (an unpinned/loosely-pinned
+# transitive numpy resolves higher, since pip has no way to know a
+# compiled `.pyx` extension's *binary* ABI expectation from version-range
+# metadata alone), but the mismatch then crashes at import time with
+# "ValueError: numpy.dtype size changed, may indicate binary
+# incompatibility" — exactly what broke `docker compose build`'s
+# `python -m spacy download en_core_web_sm` step. Verified the pinned-down
+# combination here (numpy 1.26.4 + scipy 1.13.1, both satisfying
+# scikit-learn's >=1.19.5/>=1.6.0 floors and xgboost's unconstrained numpy
+# requirement) lets spacy import cleanly *and* still loads and predicts
+# correctly with the actual committed `ml/artifacts/*.joblib` — pickled
+# under numpy 2.5.1 during training, so this also confirms those artifacts
+# are not numpy-major-version-locked.
+numpy==1.26.4
+# scipy is a transitive dependency of scikit-learn/xgboost; pinned
+# explicitly because an unconstrained resolve picks a scipy version whose
+# own `numpy>=2.0.0` floor would silently re-introduce the conflict above.
+scipy==1.13.1
 
 pytest==8.3.4
 pytest-asyncio==0.24.0
+pytest-cov==7.1.0
 httpx==0.28.1
 aiosqlite==0.20.0
 

@@ -23,6 +23,7 @@ import tempfile  # noqa: E402
 
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy import event  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncSession,
     async_sessionmaker,
@@ -47,6 +48,24 @@ test_engine = create_async_engine(
     f"sqlite+aiosqlite:///{_tmp_db_path}",
     connect_args={"check_same_thread": False},
 )
+
+
+# SQLite ignores `FOREIGN KEY ... ON DELETE CASCADE` entirely unless foreign
+# key enforcement is turned on per connection — it defaults to off for
+# backward compatibility. Without this, every cascade-delete test below would
+# pass regardless of whether cascading actually works, because SQLite would
+# silently leave orphaned child rows behind instead of removing or rejecting
+# them. This makes the test database enforce the same constraint the
+# production Postgres migration declares (see
+# `alembic/versions/202608040002_add_parsed_resume_tables.py`), so a real
+# regression here fails a test instead of only ever surfacing in production.
+@event.listens_for(test_engine.sync_engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
 TestSessionLocal = async_sessionmaker(
     bind=test_engine, class_=AsyncSession, expire_on_commit=False
 )

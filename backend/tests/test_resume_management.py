@@ -1,11 +1,35 @@
 """Integration tests for the resume listing/search/detail/statistics/delete/download APIs."""
 
+import uuid
 from pathlib import Path
 
 from httpx import AsyncClient
+from sqlalchemy import func, select
 
+from app.models.certification import Certification
+from app.models.education import Education
+from app.models.experience import Experience
+from app.models.personal_info import PersonalInfo
+from app.models.project import Project
+from app.models.skill import ResumeSkill, Skill
+from app.models.social_profile import SocialProfile
+from tests.conftest import TestSessionLocal
 from tests.fixtures.management_pdfs import ALICE_TEXT, BOB_TEXT, CAROL_TEXT
 from tests.fixtures.pdf_builder import build_pdf
+
+# Every child table with a `resume_id` foreign key declaring `ON DELETE
+# CASCADE` in the migration (see 202608040002_add_parsed_resume_tables.py) —
+# kept as one list so the orphan check below can't silently skip a table a
+# future model addition forgets to wire in here.
+_CHILD_TABLES_BY_RESUME_ID = (
+    PersonalInfo,
+    Education,
+    Experience,
+    Project,
+    Certification,
+    SocialProfile,
+    ResumeSkill,
+)
 
 UPLOAD_URL = "/api/v1/resumes/upload"
 
@@ -349,3 +373,57 @@ async def test_download_after_delete_returns_404(client: AsyncClient) -> None:
 
     assert response.status_code == 404
     assert response.json()["success"] is False
+
+
+async def test_delete_resume_leaves_no_orphaned_child_rows(client: AsyncClient) -> None:
+    """Deleting a fully-parsed resume must cascade-remove every child row.
+
+    `_seed_three_resumes`' Alice fixture (`ALICE_TEXT`) exercises every
+    child table at once: personal info, one social profile, three skills
+    (via `resume_skills`), one education entry, one experience entry, one
+    project, and one certification. The API-level delete tests only check
+    that a follow-up GET 404s, which SQLite would report as a pass even
+    if cascading silently did nothing — this asserts against the database
+    directly, across every table with a `resume_id` foreign key, so an
+    orphaned row is impossible to miss.
+    """
+    ids = await _seed_three_resumes(client)
+    alice_id = uuid.UUID(ids["alice"])
+    bob_id = uuid.UUID(ids["bob"])
+
+    async with TestSessionLocal() as session:
+        # Sanity check the fixture actually populated every table being
+        # asserted on below — a silently-empty table would make the "0 rows
+        # after delete" assertion meaningless.
+        for model in _CHILD_TABLES_BY_RESUME_ID:
+            count = (
+                await session.scalar(
+                    select(func.count()).select_from(model).where(model.resume_id == alice_id)
+                )
+            ) or 0
+            assert count > 0, f"test fixture produced no {model.__name__} rows to begin with"
+
+    delete_response = await client.delete(f"/api/v1/resumes/{alice_id}")
+    assert delete_response.status_code == 204
+
+    async with TestSessionLocal() as session:
+        for model in _CHILD_TABLES_BY_RESUME_ID:
+            remaining = (
+                await session.scalar(
+                    select(func.count()).select_from(model).where(model.resume_id == alice_id)
+                )
+            ) or 0
+            assert remaining == 0, f"{model.__name__} left {remaining} orphaned row(s)"
+
+        # Deleting Alice must not touch Bob's data — cascade scoped correctly,
+        # not a blanket wipe of the child tables.
+        bob_personal_info = await session.scalar(
+            select(func.count()).select_from(PersonalInfo).where(PersonalInfo.resume_id == bob_id)
+        )
+        assert bob_personal_info == 1
+
+        # The global skill catalog itself is not resume-scoped and must
+        # survive — only the per-resume `resume_skills` join rows are
+        # cascade-deleted.
+        remaining_skills = (await session.scalars(select(Skill.name))).all()
+        assert "Python" in remaining_skills, "shared skill catalog was wrongly wiped"

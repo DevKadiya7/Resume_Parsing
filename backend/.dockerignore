@@ -1,0 +1,43 @@
+# Kept in sync with .gitignore's intent, but scoped to what must never enter
+# a Docker build context: without this file, `COPY . .` in the Dockerfile
+# would copy backend/.venv/ (hundreds of MB, and a *host*-built venv that
+# doesn't belong in a Linux container image), local caches, real .env
+# values, and any locally-uploaded PDFs straight into the image.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+.env
+.env.*
+!.env.example
+
+uploads/*
+!uploads/.gitkeep
+uploads_test/
+
+# Training notebooks, their offline dependency list, and the datasets they
+# consume/produce are dev-time-only — the API runtime needs only
+# ml/artifacts/, which is not excluded here.
+ml/*.ipynb
+ml/requirements.txt
+ml/data/
+ml/ai-resume-screening-system.ipynb
+
+tests/
+structure.md
+
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+.vscode/
+.idea/

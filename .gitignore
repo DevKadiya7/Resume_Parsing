@@ -3,6 +3,11 @@
 .DS_Store
 Thumbs.db
 
+# Guards against a Python venv accidentally created at the repo root instead
+# of backend/.venv (backend/.gitignore already covers the real one).
+.venv/
+venv/
+
 # Source dataset (859 PDFs + a 66 MB CSV). Git is the wrong place for a
 # corpus this size — it would bloat every clone forever, and the data is
 # reproducible from its original source.

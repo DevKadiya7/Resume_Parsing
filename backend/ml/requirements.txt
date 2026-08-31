@@ -1,0 +1,29 @@
+# Training-only dependencies for backend/ml/*.ipynb — NOT part of the API
+# runtime. Install these ON TOP OF backend/requirements.txt, into the same
+# venv as the backend (the notebooks don't use spaCy, but this venv also
+# installs it, and its own requirements.txt pins numpy to 1.26.4 for that
+# reason — see the comment there):
+#
+#   cd backend
+#   pip install -r requirements.txt -r ml/requirements.txt
+#   python -m ipykernel install --user --name resume-venv --display-name "Python 3 (resume backend venv)"
+#   python -m nbconvert --to notebook --execute --inplace ml/01_build_dataset.ipynb --ExecutePreprocessor.kernel_name=resume-venv
+#   python -m nbconvert --to notebook --execute --inplace ml/02_train_classifier.ipynb --ExecutePreprocessor.kernel_name=resume-venv
+#
+# scipy is deliberately NOT re-pinned here — it's already pinned in
+# backend/requirements.txt (1.13.1, chosen for numpy<2.0 compatibility with
+# spaCy/thinc). Re-pinning a different scipy version in this file would
+# silently reintroduce that exact numpy conflict the moment both
+# requirements files are installed together, since scipy>=1.14 requires
+# numpy>=2.0.
+#
+# Versions are pinned to exactly what produced the committed
+# backend/ml/artifacts/, so re-running reproduces them byte-for-byte (every
+# notebook seeds its own randomness — see RANDOM_STATE in 02_train_classifier).
+pandas==2.2.3
+matplotlib==3.9.2
+seaborn==0.13.2
+nbconvert==7.17.1
+nbclient==0.10.0
+nbformat==5.10.4
+ipykernel==6.29.5
